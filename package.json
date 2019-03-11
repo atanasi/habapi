@@ -1,0 +1,16 @@
+{
+  "name": "habapi",
+  "version": "1.0.0",
+  "description": "",
+  "main": "habapi.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "request": "*",
+    "moment": "*",
+    "fibers": "*"
+  },
+  "author": "",
+  "license": "ISC"
+}
