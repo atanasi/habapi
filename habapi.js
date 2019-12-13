@@ -2,55 +2,63 @@
 "use strict";
 
 const moment = require('moment');
-const { Logger, UrlFetchApp } = require('./gapi');
-const Fiber = require('fibers');
+const { log, fetch } = require('./utils');
 
 const authData = require('./authdata');
 
 function startLoop() {
-  function reschedule() {
+  function reschedule(cb) {
     var now = moment();
-    var next = now.clone().minutes(1).seconds(0).add(1,'h');
+    var next = now.clone().add(10,'m');
     // var next = now.clone().add(15,'s');
     // console.log(now);
     var interval = next.diff(now);
-    const fiber = Fiber.current;
-    var timeout = setTimeout(fiber.run.bind(fiber),interval);
-//    console.log('reschedule in '+interval/1000);
-    try {
-      Fiber.yield();
-    } catch (e) {
-      console.log('Cancel from reschedule');
-      clearTimeout(timeout);
-      throw e;
-    }
+    log("next execution in "+interval/1000);
+    var cancelled = false;
+    setTimeout(function () {
+		if (cancelled) {
+			log('Cancel from reschedule');
+		} else {
+			cb(null);
+		}
+	},interval);
   }
-  function invoke(f) {
-      try {
-        console.log('Start '+f.name);
-        f();
-        console.log('Finished '+f.name);
-      } catch(e) {
-        if (e.fiberCancellation) {
-          console.log('Cancel from '+f.name);
-          throw e;
-        }
-        console.log(e);
-      }
+  function invoke(f,cb) {
+	  log('Start '+f.name);
+      f(function (e) {
+		  if (!e) {
+			  log('Finished '+f.name);
+			  cb(null);
+		  } else {
+			  if (e.cancellation) {
+				  log('Cancel from '+f.name);
+				  cb(e);
+			  } else {
+				console.log(e);
+				cb(null);
+			  }
+		  }
+	  });
   }
+  function checkErr(e) { if(e) throw e; }
   function loop() {
-    while (true) {
-      invoke(scheduleCron);
-      invoke(scheduleJoinQuest);
-      reschedule();
-    }
+      invoke(scheduleCron,
+      function (e) {
+		  checkErr(e);
+		  invoke(scheduleJoinQuest,
+		  function (e) {
+			  checkErr(e);
+			 reschedule(function (e) {
+				 checkErr(e);
+				 loop();
+			 }); 
+		  });
+	  });
   }
-  var f = Fiber(loop);
-  f.run();
-  return f;
+  loop();
 }
 
-function scheduleCron() {
+function scheduleCron(cb) {
    var habId = authData["id"]
    var habToken = authData["apitoken"];
  
@@ -63,10 +71,13 @@ function scheduleCron() {
    }
    
    var params = paramsTemplate;
-   UrlFetchApp.fetch("https://habitica.com/api/v3/cron", params);
+   fetch("https://habitica.com/api/v3/cron", params,
+   function (error, response) {
+	  cb(error); 
+   });
  }
 
-function scheduleJoinQuest() {
+function scheduleJoinQuest(cb) {
    var habId = authData['id'];
    var habToken = authData['apitoken'];
  
@@ -77,8 +88,15 @@ function scheduleJoinQuest() {
        "x-api-key" : habToken    
      }
    }  
-   var response = UrlFetchApp.fetch("https://habitica.com/api/v3/groups/party", paramsTemplate);
-   var party = JSON.parse(response);
+   fetch("https://habitica.com/api/v3/groups/party", paramsTemplate,
+   function (error,response) {
+	   if (error) { return cb(error); }
+	   var party;
+	   try {
+		party = JSON.parse(response);
+	   } catch(e) {
+		   cb(e);
+	   }
    
     if ((party.data.quest.key != undefined) && (party.data.quest.active != true) && (party.data.quest.members[habId] == undefined)){
     paramsTemplate = {
@@ -90,15 +108,17 @@ function scheduleJoinQuest() {
       }
       var params = paramsTemplate;
     
-      UrlFetchApp.fetch("https://habitica.com/api/v3/groups/party/quests/accept", params);
-      Logger.log("Quest accepted");
+      fetch("https://habitica.com/api/v3/groups/party/quests/accept", params,
+       function(error, response) {
+		  if (!error) log("Quest accepted");
+		  cb(error);
+	  }); 
     } else {
-      Logger.log("No quest invitation");
+      log("No quest invitation");
+      cb(null);
     }
+  });
 }
 
-var f = startLoop();
-console.log('started');
-/* setTimeout(function() {
-  f.reset();
-},3000); */
+startLoop();
+log('started');

@@ -7,9 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "request": "*",
     "moment": "*",
-    "fibers": "*"
+    "request": "*"
   },
   "author": "",
   "license": "ISC"
